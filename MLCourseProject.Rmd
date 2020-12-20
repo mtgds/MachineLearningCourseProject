@@ -1,0 +1,164 @@
+---
+title: "Machine Learning Course Project"
+author: "Matías Tobar Gigoux"
+date: "20-12-2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r echo=TRUE}
+library(caret)
+library(randomForest)
+library(forecast)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(gbm)
+library(ggplot2)
+library(corrplot)
+```
+
+## SUMMARY
+
+### Background
+
+#### Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+### Data
+
+#### The training data for this project are available here:
+
+#### https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+#### The test data are available here:
+
+#### https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+
+
+## 1-. GETTING THE DATA, DATA CLEANING AND PREPARATION
+```{r echo=TRUE}
+pml_train <- read.csv("pml-training.csv")
+pml_test <- read.csv("pml-testing.csv")
+
+dim(pml_train)
+dim(pml_test)
+```
+
+#### i) We proceed to make a 60% partition
+```{r echo=TRUE}
+inTrain <- createDataPartition(pml_train$classe, p=0.6, list = FALSE)
+training_pml <- pml_train[inTrain,]
+testing_pml <- pml_train[-inTrain,]
+
+dim(training_pml)
+dim(testing_pml)
+```
+
+
+#### ii) There are NAs within the data. We proceed to suppress them
+```{r echo=TRUE}
+trainingpml_clean <- training_pml[,colSums(is.na(training_pml))==0]
+testingpml_clean <- testing_pml[,colSums(is.na(testing_pml))==0]
+
+dim(trainingpml_clean)
+dim(testingpml_clean)
+```
+
+#### iii) Columns with variance close to zero are eliminated
+```{r echo=TRUE}
+NZV <- nearZeroVar(trainingpml_clean)
+trainingpml_clean2 <- trainingpml_clean[, -NZV]
+testingpml_clean2  <- testingpml_clean[, -NZV]
+dim(trainingpml_clean2)
+dim(testingpml_clean2)
+```
+
+#### iv) We make sure they all belong to the same class
+```{r echo=TRUE}
+for(i in 1:length(testingpml_clean2) ){
+for(j in 1:length(trainingpml_clean2)){
+if( length( grep(names(trainingpml_clean2[i]), names(testingpml_clean2)[j]) ) ==1){
+class(testingpml_clean2[j]) <- class(trainingpml_clean2[i])}      
+}      
+}
+```
+
+#### v) Within the variables, and for calculation purposes, the decision is made to get rid of those type chr
+```{r echo=TRUE}
+trainingpml_clean3 <- trainingpml_clean2[,-c(1,2,5)]
+testingpml_clean3 <- testingpml_clean2[,-c(1,2,5)]
+trainingpml_clean3$classe <- as.factor(trainingpml_clean3$classe)
+testingpml_clean3$classe <- as.factor(testingpml_clean3$classe)
+dim(trainingpml_clean3)
+dim(testingpml_clean3)
+```
+
+## 2-. ANALYSIS OF THE CORRELATION BETWEEN VARIABLES
+```{r echo=TRUE}
+# All variables are transformed to numeric and the one that is a factor (classe) is extracted
+
+trainingpml_cleanNUM <- trainingpml_clean3[,-56]
+trainingpml_cleanNUM[] <- lapply(trainingpml_cleanNUM, as.numeric)
+str(trainingpml_cleanNUM)
+
+# Graphically,
+
+corMatrix <- cor(trainingpml_cleanNUM)
+corrplot(corMatrix, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+dev.copy(png, file="corMatrix.png", width=640, height=720)
+dev.off()
+```
+
+
+```{r echo=TRUE}
+# Additionally and in order to work on the models to be proposed, the variables could be further limited by defining the correlation level at 80%. Despite this exercise, we will work with the 56 variables already identified.
+
+HighCorr = findCorrelation(corMatrix, cutoff=0.8)
+names(trainingpml_cleanNUM)[HighCorr]
+```
+
+
+## 3-. DECISION TREE, RANDOM FOREST AND GBM MODELS
+
+# i) Decision Tree
+```{r echo=TRUE}
+set.seed(12345)
+modelFit <- rpart(classe~., method="class", trainingpml_clean3)
+fancyRpartPlot(modelFit)
+
+predict_modelFit <- predict(modelFit, testingpml_clean3, "class")
+matrix_modelFit <- confusionMatrix(predict_modelFit, testingpml_clean3$classe)
+matrix_modelFit$overall[1]
+```
+
+
+# ii) RandomForest
+```{r echo=TRUE}
+modelFitRF <- randomForest(classe~., trainingpml_clean3)
+predict_modelFitRF <- predict(modelFitRF, testingpml_clean3)
+matrix_modelFitRF <- confusionMatrix(predict_modelFitRF, testingpml_clean3$classe)
+matrix_modelFitRF$overall[1]
+```
+
+# iii) GBM: Generalized Boosted Model
+```{r echo=TRUE}
+modelFitGBM <- train(classe~., method="gbm", trainingpml_clean3)
+predict_modelFitGBM <- predict(modelFitGBM, testingpml_clean3)
+matrix_modelFitGBM <- confusionMatrix(predict_modelFitGBM, testingpml_clean3$classe)
+matrix_modelFitGBM$overall[1]
+```
+
+
+### From the results obtained, it follows that the model that best fits is RandomForest, whose accuracy is 0.997196
+
+## 4-. RESPONDING TO THE REQUESTED PREDICTION,
+```{r echo= TRUE}
+Results <- predict(modelFitRF, pml_test)
+Results
+```
+
